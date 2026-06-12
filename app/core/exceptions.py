@@ -86,3 +86,5 @@ class MissingReqFieldException(LegalBuddyException):
 class ValueOutOfRangeException(LegalBuddyException):
     def __init__(self, message = "Values are out of Range"):
         super().__init__(message, status_code = 422, error_code = "VALUE_OUT_OF_BOUNDS")
+
+        #checking
