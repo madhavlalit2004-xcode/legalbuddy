@@ -1,3 +1,6 @@
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
 class LegalBuddyException(Exception):
     def __init__(self, message, status_code = 500 , error_code = "INTERNAL_ERROR"):
         self.message = message
@@ -5,6 +8,16 @@ class LegalBuddyException(Exception):
         self.error_code = error_code
 
         super().__init__(message)
+    
+    async def legal_buddy_exception_handler(request, exc):
+        return JSONResponse(
+            status_code=exc.status_code, 
+            content={
+                "error": exc.error_code,
+                "message": exc.message,
+                "status_code": exc.status_code
+            }
+        )
 
 #Documents Exceptions
 class FileTooLargeException(LegalBuddyException):
