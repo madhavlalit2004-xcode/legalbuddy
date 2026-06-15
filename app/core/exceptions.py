@@ -40,7 +40,15 @@ class FileParsingException(LegalBuddyException):
     def __init__(self, message = "File Parsing Failed"):
         super().__init__(message, status_code = 400, error_code = "PARSING_FAILED")
 
+class InvalidPDFException(LegalBuddyException):
+    def __init__(self, message = "File is not a valid PDF"):
+        super().__init__(message, status_code=400, error_code="INVALID_PDF")
 
+class EmptyDocumentException(LegalBuddyException):
+    def __init__(self, message = "No text could be extracted from this doc"):
+        super().__init__(message, status_code=422, error_code="EMPTY_DOCUMENT")
+
+        
 #LLM
 class OllamaUnreachableException(LegalBuddyException):
     def __init__(self, message = "Ollama service is unreachable"):
