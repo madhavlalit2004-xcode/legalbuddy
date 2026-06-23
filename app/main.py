@@ -1,5 +1,8 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from app.api.router import api_router
 from app.core.config import settings
@@ -7,6 +10,8 @@ from app.core.exceptions import LegalBuddyException
 from app.core.logging import configure_logging
 
 configure_logging()
+
+FRONTEND_INDEX = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -34,10 +39,5 @@ app.include_router(api_router, prefix="/api/v1")
 
 
 @app.get("/")
-def root() -> dict:
-    return {
-        "app_name": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-        "docs_url": "/api/v1/docs",
-        "health_url": "/api/v1/health/",
-    }
+def root() -> FileResponse:
+    return FileResponse(FRONTEND_INDEX)

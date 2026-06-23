@@ -1,0 +1,1029 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Legal Buddy</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel-soft: #eef2f5;
+      --text: #17202a;
+      --muted: #607080;
+      --line: #d8e0e7;
+      --accent: #0f766e;
+      --accent-strong: #0b5f59;
+      --danger: #b42318;
+      --danger-soft: #fde8e5;
+      --warning: #a15c00;
+      --warning-soft: #fff2d6;
+      --success: #146c43;
+      --success-soft: #ddf4e7;
+      --critical: #7f1d1d;
+      --critical-soft: #fee2e2;
+      --shadow: 0 12px 30px rgba(23, 32, 42, 0.08);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--line);
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .brand {
+      padding: 22px 22px 18px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand-title {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+      letter-spacing: 0;
+      font-weight: 760;
+    }
+
+    .health-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 30px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: #fbfcfd;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+
+    .health-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--warning);
+    }
+
+    .health-pill[data-state="ready"] .health-dot,
+    .health-pill[data-state="healthy"] .health-dot {
+      background: var(--success);
+    }
+
+    .health-pill[data-state="error"] .health-dot,
+    .health-pill[data-state="degraded"] .health-dot {
+      background: var(--danger);
+    }
+
+    .upload-zone {
+      margin: 18px;
+      min-height: 156px;
+      border: 1.5px dashed #9baab8;
+      border-radius: 8px;
+      background: #fafbfc;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      text-align: center;
+      transition: border-color 140ms ease, background 140ms ease;
+    }
+
+    .upload-zone.is-dragging {
+      border-color: var(--accent);
+      background: #e8f5f3;
+    }
+
+    .upload-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      background: var(--panel-soft);
+      display: grid;
+      place-items: center;
+      margin: 0 auto 10px;
+      color: var(--accent);
+      font-weight: 800;
+    }
+
+    .upload-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 720;
+    }
+
+    .upload-meta {
+      margin: 6px 0 14px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .file-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+    }
+
+    .primary-button,
+    .secondary-button,
+    .icon-button {
+      min-height: 38px;
+      border-radius: 7px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 14px;
+      font-weight: 700;
+    }
+
+    .primary-button {
+      color: #ffffff;
+      background: var(--accent);
+    }
+
+    .primary-button:hover {
+      background: var(--accent-strong);
+    }
+
+    .secondary-button,
+    .icon-button {
+      color: var(--text);
+      background: #ffffff;
+      border: 1px solid var(--line);
+    }
+
+    .secondary-button:hover,
+    .icon-button:hover {
+      border-color: #9baab8;
+    }
+
+    .icon-button {
+      width: 38px;
+      padding: 0;
+      flex: 0 0 auto;
+    }
+
+    .sidebar-section {
+      padding: 0 18px 18px;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 0 10px;
+    }
+
+    .section-title {
+      margin: 0;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 760;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .documents-list {
+      display: grid;
+      gap: 8px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .document-item {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 12px;
+      text-align: left;
+      display: grid;
+      gap: 8px;
+    }
+
+    .document-item:hover,
+    .document-item.is-selected {
+      border-color: var(--accent);
+    }
+
+    .document-name {
+      font-size: 14px;
+      line-height: 1.25;
+      font-weight: 720;
+      overflow-wrap: anywhere;
+    }
+
+    .document-meta {
+      color: var(--muted);
+      font-size: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      min-height: 72px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(246, 247, 249, 0.92);
+      backdrop-filter: blur(14px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    .scope-label {
+      min-width: 0;
+    }
+
+    .scope-kicker {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .scope-title {
+      margin-top: 3px;
+      font-size: 18px;
+      font-weight: 760;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: min(620px, 52vw);
+    }
+
+    .query-panel {
+      padding: 24px;
+      border-bottom: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .query-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 110px 150px;
+      gap: 12px;
+      align-items: end;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    .field label {
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 720;
+    }
+
+    .query-input,
+    .number-input {
+      width: 100%;
+      min-height: 46px;
+      border-radius: 7px;
+      border: 1px solid var(--line);
+      background: #ffffff;
+      padding: 0 13px;
+      color: var(--text);
+    }
+
+    .query-input:focus,
+    .number-input:focus {
+      outline: 3px solid rgba(15, 118, 110, 0.16);
+      border-color: var(--accent);
+    }
+
+    .results-wrap {
+      padding: 24px;
+      display: grid;
+      gap: 18px;
+      min-width: 0;
+    }
+
+    .summary-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 14px;
+      min-height: 84px;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-weight: 760;
+    }
+
+    .metric-value {
+      margin-top: 8px;
+      font-size: 24px;
+      line-height: 1;
+      font-weight: 800;
+    }
+
+    .result-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .result-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .result-head {
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfd;
+    }
+
+    .result-title {
+      font-weight: 760;
+      line-height: 1.25;
+    }
+
+    .score {
+      min-width: 86px;
+      text-align: right;
+      color: var(--accent);
+      font-weight: 800;
+    }
+
+    .result-body {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .result-text {
+      margin: 0;
+      line-height: 1.55;
+      color: #253241;
+      white-space: pre-wrap;
+    }
+
+    .insights {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 740;
+      background: var(--panel-soft);
+      color: var(--text);
+    }
+
+    .tag.low {
+      background: var(--success-soft);
+      color: var(--success);
+    }
+
+    .tag.medium {
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    .tag.high {
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+
+    .tag.critical {
+      background: var(--critical-soft);
+      color: var(--critical);
+    }
+
+    .empty-state,
+    .message {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 22px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .message {
+      margin: 0 18px 18px;
+      padding: 12px 14px;
+      font-size: 13px;
+      display: none;
+    }
+
+    .message.is-visible {
+      display: block;
+    }
+
+    .message.error {
+      border-color: #f2b8b1;
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+
+    .message.success {
+      border-color: #b6e3c9;
+      background: var(--success-soft);
+      color: var(--success);
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.5);
+      border-top-color: #ffffff;
+      border-radius: 999px;
+      animation: spin 700ms linear infinite;
+      display: none;
+    }
+
+    .is-loading .spinner {
+      display: block;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @media (max-width: 900px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+        max-height: none;
+      }
+
+      .documents-list {
+        max-height: 260px;
+      }
+
+      .topbar {
+        position: static;
+      }
+
+      .scope-title {
+        max-width: 62vw;
+      }
+
+      .query-grid,
+      .summary-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .brand,
+      .topbar,
+      .query-panel,
+      .results-wrap {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+
+      .brand,
+      .topbar,
+      .result-head {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .scope-title {
+        max-width: 100%;
+      }
+
+      .toolbar {
+        width: 100%;
+        justify-content: stretch;
+      }
+
+      .toolbar > button {
+        flex: 1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <header class="brand">
+        <h1 class="brand-title">AI Legal Buddy</h1>
+        <div class="health-pill" id="healthPill" data-state="checking">
+          <span class="health-dot"></span>
+          <span id="healthText">Checking</span>
+        </div>
+      </header>
+
+      <section class="upload-zone" id="uploadZone">
+        <div>
+          <div class="upload-icon">PDF</div>
+          <p class="upload-title">Upload legal document</p>
+          <p class="upload-meta" id="uploadMeta">PDF files up to your configured limit</p>
+          <input class="file-input" id="fileInput" type="file" accept="application/pdf,.pdf">
+          <button class="primary-button" id="chooseFileButton" type="button">
+            <span>Choose PDF</span>
+          </button>
+        </div>
+      </section>
+
+      <p class="message" id="uploadMessage"></p>
+
+      <section class="sidebar-section">
+        <div class="section-head">
+          <h2 class="section-title">Documents</h2>
+          <button class="icon-button" id="refreshButton" type="button" title="Refresh documents" aria-label="Refresh documents">↻</button>
+        </div>
+        <div class="documents-list" id="documentsList"></div>
+      </section>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="scope-label">
+          <div class="scope-kicker">Search scope</div>
+          <div class="scope-title" id="scopeTitle">All documents</div>
+        </div>
+        <div class="toolbar">
+          <button class="secondary-button" id="clearScopeButton" type="button">All documents</button>
+          <button class="secondary-button" id="deleteButton" type="button" disabled>Delete selected</button>
+        </div>
+      </header>
+
+      <section class="query-panel">
+        <form class="query-grid" id="queryForm">
+          <div class="field">
+            <label for="queryInput">Question</label>
+            <input class="query-input" id="queryInput" name="query" type="text" placeholder="What are the termination obligations?" autocomplete="off" required>
+          </div>
+          <div class="field">
+            <label for="topKInput">Results</label>
+            <input class="number-input" id="topKInput" name="topK" type="number" min="1" max="20" value="5">
+          </div>
+          <button class="primary-button" id="searchButton" type="submit">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Search</span>
+          </button>
+        </form>
+      </section>
+
+      <section class="results-wrap">
+        <div class="summary-row" id="summaryRow"></div>
+        <div class="result-list" id="resultsList">
+          <div class="empty-state">Upload a PDF or search across existing documents.</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const api = {
+      health: "/api/v1/health/ready",
+      documents: "/api/v1/documents/",
+      upload: "/api/v1/documents/upload",
+      query: "/api/v1/query/"
+    };
+
+    const state = {
+      documents: [],
+      selectedDocumentId: null,
+      isUploading: false,
+      isSearching: false
+    };
+
+    const elements = {
+      healthPill: document.getElementById("healthPill"),
+      healthText: document.getElementById("healthText"),
+      uploadZone: document.getElementById("uploadZone"),
+      uploadMeta: document.getElementById("uploadMeta"),
+      fileInput: document.getElementById("fileInput"),
+      chooseFileButton: document.getElementById("chooseFileButton"),
+      uploadMessage: document.getElementById("uploadMessage"),
+      refreshButton: document.getElementById("refreshButton"),
+      documentsList: document.getElementById("documentsList"),
+      scopeTitle: document.getElementById("scopeTitle"),
+      clearScopeButton: document.getElementById("clearScopeButton"),
+      deleteButton: document.getElementById("deleteButton"),
+      queryForm: document.getElementById("queryForm"),
+      queryInput: document.getElementById("queryInput"),
+      topKInput: document.getElementById("topKInput"),
+      searchButton: document.getElementById("searchButton"),
+      summaryRow: document.getElementById("summaryRow"),
+      resultsList: document.getElementById("resultsList")
+    };
+
+    function formatDate(value) {
+      if (!value) return "Unknown date";
+      return new Intl.DateTimeFormat(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      }).format(new Date(value));
+    }
+
+    function setMessage(type, text) {
+      elements.uploadMessage.className = `message ${type || ""}`.trim();
+      elements.uploadMessage.textContent = text || "";
+      elements.uploadMessage.classList.toggle("is-visible", Boolean(text));
+    }
+
+    async function readJson(response) {
+      const text = await response.text();
+      if (!text) return {};
+
+      try {
+        return JSON.parse(text);
+      } catch {
+        return { message: text };
+      }
+    }
+
+    function getErrorMessage(payload, fallback) {
+      return payload.message || payload.detail || payload.error || fallback;
+    }
+
+    async function checkHealth() {
+      try {
+        const response = await fetch(api.health);
+        const payload = await readJson(response);
+        const status = response.ok ? payload.status || "ready" : "error";
+        elements.healthPill.dataset.state = status;
+        elements.healthText.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+      } catch {
+        elements.healthPill.dataset.state = "error";
+        elements.healthText.textContent = "Offline";
+      }
+    }
+
+    async function loadDocuments() {
+      elements.refreshButton.disabled = true;
+
+      try {
+        const response = await fetch(api.documents);
+        const payload = await readJson(response);
+
+        if (!response.ok) {
+          throw new Error(getErrorMessage(payload, "Could not load documents."));
+        }
+
+        state.documents = Array.isArray(payload) ? payload : [];
+        if (!state.documents.some((document) => document.document_id === state.selectedDocumentId)) {
+          state.selectedDocumentId = null;
+        }
+
+        renderDocuments();
+        updateScope();
+      } catch (error) {
+        elements.documentsList.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+      } finally {
+        elements.refreshButton.disabled = false;
+      }
+    }
+
+    function renderDocuments() {
+      if (!state.documents.length) {
+        elements.documentsList.innerHTML = '<div class="empty-state">No documents indexed yet.</div>';
+        return;
+      }
+
+      elements.documentsList.innerHTML = state.documents.map((document) => {
+        const selectedClass = document.document_id === state.selectedDocumentId ? " is-selected" : "";
+        return `
+          <button class="document-item${selectedClass}" type="button" data-document-id="${escapeHtml(document.document_id)}">
+            <span class="document-name">${escapeHtml(document.filename)}</span>
+            <span class="document-meta">
+              <span>${document.page_count || 0} pages</span>
+              <span>${document.file_size_mb || 0} MB</span>
+              <span>${escapeHtml(formatDate(document.upload_timestamp))}</span>
+            </span>
+          </button>
+        `;
+      }).join("");
+    }
+
+    function updateScope() {
+      const selected = getSelectedDocument();
+      elements.scopeTitle.textContent = selected ? selected.filename : "All documents";
+      elements.deleteButton.disabled = !selected;
+      renderDocuments();
+    }
+
+    function getSelectedDocument() {
+      return state.documents.find((document) => document.document_id === state.selectedDocumentId) || null;
+    }
+
+    async function uploadFile(file) {
+      if (!file) return;
+
+      if (!file.name.toLowerCase().endsWith(".pdf")) {
+        setMessage("error", "Only PDF files are supported.");
+        return;
+      }
+
+      state.isUploading = true;
+      elements.chooseFileButton.disabled = true;
+      setMessage("", `Uploading ${file.name}...`);
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const response = await fetch(api.upload, {
+          method: "POST",
+          body: formData
+        });
+        const payload = await readJson(response);
+
+        if (!response.ok) {
+          throw new Error(getErrorMessage(payload, "Upload failed."));
+        }
+
+        state.selectedDocumentId = payload.document_id;
+        setMessage("success", payload.message || "Document uploaded.");
+        await loadDocuments();
+      } catch (error) {
+        setMessage("error", error.message);
+      } finally {
+        state.isUploading = false;
+        elements.chooseFileButton.disabled = false;
+        elements.fileInput.value = "";
+      }
+    }
+
+    async function runSearch(event) {
+      event.preventDefault();
+
+      const query = elements.queryInput.value.trim();
+      if (!query) return;
+
+      state.isSearching = true;
+      elements.searchButton.disabled = true;
+      elements.searchButton.classList.add("is-loading");
+      elements.resultsList.innerHTML = '<div class="empty-state">Searching indexed legal text...</div>';
+
+      const topK = Number(elements.topKInput.value) || 5;
+      const body = {
+        query,
+        top_k: Math.max(1, Math.min(20, topK)),
+        similarity_threshold: 0.3
+      };
+
+      if (state.selectedDocumentId) {
+        body.document_id = state.selectedDocumentId;
+      }
+
+      try {
+        const response = await fetch(api.query, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        const payload = await readJson(response);
+
+        if (!response.ok) {
+          throw new Error(getErrorMessage(payload, "Search failed."));
+        }
+
+        renderSearchResults(payload);
+      } catch (error) {
+        elements.summaryRow.innerHTML = "";
+        elements.resultsList.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+      } finally {
+        state.isSearching = false;
+        elements.searchButton.disabled = false;
+        elements.searchButton.classList.remove("is-loading");
+      }
+    }
+
+    function renderSearchResults(payload) {
+      const aggregate = payload.aggregate_insights || {};
+      const risk = aggregate.overall_risk || "none";
+      const counts = aggregate.risk_level_counts || {};
+
+      elements.summaryRow.innerHTML = `
+        <div class="metric">
+          <div class="metric-label">Results</div>
+          <div class="metric-value">${payload.total_results || 0}</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Risk</div>
+          <div class="metric-value">${escapeHtml(String(risk).toUpperCase())}</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Insights</div>
+          <div class="metric-value">${aggregate.total_insights || 0}</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Time</div>
+          <div class="metric-value">${payload.processing_time_ms || 0}ms</div>
+        </div>
+      `;
+
+      if (!payload.results || !payload.results.length) {
+        elements.resultsList.innerHTML = '<div class="empty-state">No matching chunks above the similarity threshold.</div>';
+        return;
+      }
+
+      elements.resultsList.innerHTML = payload.results.map((result, index) => {
+        const insights = Array.isArray(result.insights) ? result.insights : [];
+        const insightTags = insights.length
+          ? insights.map((insight) => `
+              <span class="tag ${escapeHtml(insight.risk_level || "")}">
+                ${escapeHtml(insight.insight_type || "insight")} · ${escapeHtml(insight.risk_level || "risk")}
+              </span>
+            `).join("")
+          : '<span class="tag">No tagged insight</span>';
+
+        return `
+          <article class="result-card">
+            <div class="result-head">
+              <div class="result-title">Result ${index + 1} · Page ${result.page_number || 0}</div>
+              <div class="score">${Math.round((result.similarity_score || 0) * 100)}%</div>
+            </div>
+            <div class="result-body">
+              <p class="result-text">${escapeHtml(result.text || "")}</p>
+              <div class="insights">${insightTags}</div>
+            </div>
+          </article>
+        `;
+      }).join("");
+
+      void counts;
+    }
+
+    async function deleteSelectedDocument() {
+      const selected = getSelectedDocument();
+      if (!selected) return;
+
+      const confirmed = window.confirm(`Delete ${selected.filename}?`);
+      if (!confirmed) return;
+
+      elements.deleteButton.disabled = true;
+
+      try {
+        const response = await fetch(`${api.documents}${encodeURIComponent(selected.document_id)}`, {
+          method: "DELETE"
+        });
+        const payload = await readJson(response);
+
+        if (!response.ok) {
+          throw new Error(getErrorMessage(payload, "Delete failed."));
+        }
+
+        state.selectedDocumentId = null;
+        setMessage("success", payload.message || "Document deleted.");
+        elements.summaryRow.innerHTML = "";
+        elements.resultsList.innerHTML = '<div class="empty-state">Document removed from the index.</div>';
+        await loadDocuments();
+      } catch (error) {
+        setMessage("error", error.message);
+      } finally {
+        updateScope();
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    elements.chooseFileButton.addEventListener("click", () => elements.fileInput.click());
+    elements.fileInput.addEventListener("change", (event) => uploadFile(event.target.files[0]));
+    elements.refreshButton.addEventListener("click", loadDocuments);
+    elements.clearScopeButton.addEventListener("click", () => {
+      state.selectedDocumentId = null;
+      updateScope();
+    });
+    elements.deleteButton.addEventListener("click", deleteSelectedDocument);
+    elements.queryForm.addEventListener("submit", runSearch);
+
+    elements.documentsList.addEventListener("click", (event) => {
+      const item = event.target.closest("[data-document-id]");
+      if (!item) return;
+      state.selectedDocumentId = item.dataset.documentId;
+      updateScope();
+    });
+
+    ["dragenter", "dragover"].forEach((eventName) => {
+      elements.uploadZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        elements.uploadZone.classList.add("is-dragging");
+      });
+    });
+
+    ["dragleave", "drop"].forEach((eventName) => {
+      elements.uploadZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        elements.uploadZone.classList.remove("is-dragging");
+      });
+    });
+
+    elements.uploadZone.addEventListener("drop", (event) => {
+      uploadFile(event.dataTransfer.files[0]);
+    });
+
+    void checkHealth();
+    void loadDocuments();
+  </script>
+</body>
+</html>

@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     CHROMA_PERSIST_DIR: str = Field(default="./chroma_db")
     TOP_K_RESULTS: int = Field(default=5)
     SIMILARITY_THRESHOLD: float = Field(default=0.7)
+    EMBEDDING_MODEL: str = Field(default="all-MiniLM-L6-v2")
     EMBEDDING_BATCH_SIZE: int = Field(default=32)
 
     # ── Logging ──────────────────────────────────────────────────────────────

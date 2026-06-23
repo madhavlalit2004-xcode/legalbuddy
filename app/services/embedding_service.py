@@ -1,96 +1,104 @@
-import httpx
+import hashlib
+import math
+import re
+from functools import lru_cache
+
 from app.core.config import settings
-from app.core.exceptions import OllamaUnreachableException, ModelNotFoundException
+from app.core.exceptions import EmbeddingException
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# How many times to retry a failed embedding call before giving up
-_MAX_RETRIES = 3
+_FALLBACK_DIMENSIONS = 384
+_TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
 
 
-def _call_ollama_embedding(text: str) -> list[float]:
-    url = f"{settings.OLLAMA_BASE_URL}/api/embeddings"
-    payload = {
-        "model": settings.OLLAMA_EMBEDDING_MODEL,
-        "prompt": text
-    }
+@lru_cache(maxsize=1)
+def _get_sentence_transformer():
+    try:
+        from sentence_transformers import SentenceTransformer
 
-    # 10s per attempt, 3 attempts = worst case ~30s before failing.
-    # Long enough for a slow local model, short enough not to hang a web request.
-    timeout_seconds = 10.0
-    last_error = None
+        logger.info("loading sentence transformer", model=settings.EMBEDDING_MODEL)
+        return SentenceTransformer(settings.EMBEDDING_MODEL)
+    except Exception as exc:
+        logger.warning(
+            "sentence transformer unavailable, using hash embeddings",
+            model=settings.EMBEDDING_MODEL,
+            error=str(exc),
+        )
+        return None
 
-    for attempt in range(1, _MAX_RETRIES + 1):
-        try:
-            response = httpx.post(url, json=payload, timeout=timeout_seconds)
 
-            if response.status_code == 404:
-                # Model not pulled/found on this Ollama instance
-                logger.warning("ollama model not found", model=settings.OLLAMA_EMBEDDING_MODEL)
-                raise ModelNotFoundException(
-                    message=f"Embedding model '{settings.OLLAMA_EMBEDDING_MODEL}' not found in Ollama. "
-                            f"Run: ollama pull {settings.OLLAMA_EMBEDDING_MODEL}"
-                )
+def _normalize(vector: list[float]) -> list[float]:
+    norm = math.sqrt(sum(value * value for value in vector))
+    if norm == 0:
+        return vector
+    return [value / norm for value in vector]
 
-            response.raise_for_status()
-            data = response.json()
 
-            embedding = data.get("embedding")
-            if not embedding:
-                raise ValueError("Ollama response missing 'embedding' field")
+def _hash_embedding(text: str) -> list[float]:
+    vector = [0.0] * _FALLBACK_DIMENSIONS
+    tokens = _TOKEN_RE.findall(text.lower())
 
-            return embedding
+    for token in tokens:
+        digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+        bucket = int.from_bytes(digest[:4], "big") % _FALLBACK_DIMENSIONS
+        sign = 1.0 if digest[4] % 2 == 0 else -1.0
+        vector[bucket] += sign
 
-        except ModelNotFoundException:
-            # Don't retry this — retrying won't make the model appear
-            raise
+    return _normalize(vector)
 
-        except (httpx.ConnectError, httpx.TimeoutException, httpx.RequestError) as e:
-            last_error = e
-            logger.warning(
-                "ollama embedding call failed, retrying",
-                attempt=attempt,
-                max_retries=_MAX_RETRIES,
-                error=str(e)
-            )
 
-    # All retries exhausted — Ollama is genuinely unreachable
-    logger.warning("ollama unreachable after retries", error=str(last_error))
-    raise OllamaUnreachableException(
-        message=f"Could not reach Ollama at {settings.OLLAMA_BASE_URL} after {_MAX_RETRIES} attempts."
-    )
+def _validate_text(text: str) -> str:
+    cleaned = text.strip()
+    if not cleaned:
+        raise EmbeddingException(message="Cannot embed empty text.")
+    return cleaned
 
 
 def get_embedding(text: str) -> list[float]:
-    if not text or not text.strip():
-        raise ValueError("Cannot embed empty text")
+    cleaned = _validate_text(text)
+    model = _get_sentence_transformer()
 
-    return _call_ollama_embedding(text)
+    if model is None:
+        return _hash_embedding(cleaned)
+
+    try:
+        embedding = model.encode(
+            cleaned,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+        return embedding.tolist()
+    except Exception as exc:
+        logger.warning("sentence transformer embedding failed, using hash embedding", error=str(exc))
+        return _hash_embedding(cleaned)
 
 
 def get_embeddings_batch(texts: list[str]) -> list[list[float]]:
-    embeddings: list[list[float]] = []
-    failed_count = 0
+    cleaned_texts = [_validate_text(text) for text in texts]
+    if not cleaned_texts:
+        return []
 
-    for i, text in enumerate(texts):
-        try:
-            embedding = get_embedding(text)
-            embeddings.append(embedding)
-        except OllamaUnreachableException:
-            # If Ollama is down, every subsequent call will fail too — stop immediately
-            logger.warning("ollama unreachable, aborting batch", completed=i, total=len(texts))
-            raise
-        except ValueError:
-            # Empty text for this particular chunk — skip it, don't kill the whole batch
-            logger.warning("skipping empty text in batch", index=i)
-            failed_count += 1
-            continue
+    model = _get_sentence_transformer()
 
-    logger.info(
-        "batch embedding complete",
-        total=len(texts),
-        succeeded=len(embeddings),
-        skipped=failed_count
-    )
-    return embeddings
+    if model is None:
+        embeddings = [_hash_embedding(text) for text in cleaned_texts]
+        logger.info("batch hash embedding complete", total=len(embeddings))
+        return embeddings
+
+    try:
+        embeddings = model.encode(
+            cleaned_texts,
+            batch_size=settings.EMBEDDING_BATCH_SIZE,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+        result = embeddings.tolist()
+        logger.info("batch sentence transformer embedding complete", total=len(result))
+        return result
+    except Exception as exc:
+        logger.warning("batch sentence transformer embedding failed, using hash embeddings", error=str(exc))
+        embeddings = [_hash_embedding(text) for text in cleaned_texts]
+        logger.info("batch hash embedding complete", total=len(embeddings))
+        return embeddings
