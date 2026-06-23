@@ -78,6 +78,7 @@ class ChunkResult(BaseModel):
 # Full response to a legal query — wraps all matching chunks with a risk summary
 class QueryResponse(BaseModel):
     query: str
+    generated_answer: Optional[str] = None
     total_results: int
     results: list[ChunkResult] = Field(default_factory=list)
     aggregate_insights: dict = Field(default_factory=dict)

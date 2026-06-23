@@ -396,6 +396,31 @@
       gap: 12px;
     }
 
+    .answer-card {
+      border: 1px solid #abd7d1;
+      border-radius: 8px;
+      background: #f0faf8;
+      padding: 18px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .answer-label {
+      margin: 0;
+      color: var(--accent-strong);
+      font-size: 13px;
+      font-weight: 780;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .answer-text {
+      margin: 0;
+      color: #18342f;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+
     .result-card {
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -915,12 +940,21 @@
         </div>
       `;
 
+      const answerHtml = payload.generated_answer
+        ? `
+          <article class="answer-card">
+            <p class="answer-label">Generated answer</p>
+            <p class="answer-text">${escapeHtml(payload.generated_answer)}</p>
+          </article>
+        `
+        : "";
+
       if (!payload.results || !payload.results.length) {
-        elements.resultsList.innerHTML = '<div class="empty-state">No matching chunks above the similarity threshold.</div>';
+        elements.resultsList.innerHTML = `${answerHtml}<div class="empty-state">No matching chunks above the similarity threshold.</div>`;
         return;
       }
 
-      elements.resultsList.innerHTML = payload.results.map((result, index) => {
+      const resultCards = payload.results.map((result, index) => {
         const insights = Array.isArray(result.insights) ? result.insights : [];
         const insightTags = insights.length
           ? insights.map((insight) => `
@@ -943,6 +977,8 @@
           </article>
         `;
       }).join("");
+
+      elements.resultsList.innerHTML = `${answerHtml}${resultCards}`;
 
       void counts;
     }

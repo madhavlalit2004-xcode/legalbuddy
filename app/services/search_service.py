@@ -3,13 +3,14 @@ from app.core.exceptions import EmptyDocumentException
 from app.core.logging import get_logger
 from app.models.schemas import QueryRequest, QueryResponse, ChunkResult, LegalInsight
 from app.services.embedding_service import get_embedding
+from app.services.generation_service import generation_service
 from app.services.vector_store import query_similar
 from app.utils.legal_extractor import extract_insights, aggregate_insights
 
 logger = get_logger(__name__)
 
 
-def search_documents(request: QueryRequest) -> QueryResponse:
+async def search_documents(request: QueryRequest) -> QueryResponse:
     start_time = time.time()
 
     logger.info("search started", query=request.query, document_id=request.document_id, top_k=request.top_k)
@@ -47,13 +48,16 @@ def search_documents(request: QueryRequest) -> QueryResponse:
         ))
 
     aggregate_summary = aggregate_insights(all_chunk_insights)
+    generated_answer = await generation_service.generate_answer(request.query, chunk_results)
     elapsed_ms = (time.time() - start_time) * 1000
 
     logger.info("search complete", query=request.query, results_returned=len(chunk_results),
-                overall_risk=aggregate_summary["overall_risk"], elapsed_ms=round(elapsed_ms, 1))
+                overall_risk=aggregate_summary["overall_risk"], has_generated_answer=bool(generated_answer),
+                elapsed_ms=round(elapsed_ms, 1))
 
     return QueryResponse(
         query=request.query,
+        generated_answer=generated_answer,
         total_results=len(chunk_results),
         results=chunk_results,
         aggregate_insights=aggregate_summary,

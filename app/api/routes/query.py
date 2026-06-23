@@ -14,7 +14,7 @@ router = APIRouter(prefix="/query", tags=["query"])
     response_model=QueryResponse,
     status_code=status.HTTP_200_OK,
 )
-def query_documents(request: QueryRequest) -> QueryResponse:
+async def query_documents(request: QueryRequest) -> QueryResponse:
     logger.info(
         "query request received",
         query=request.query,
@@ -23,4 +23,4 @@ def query_documents(request: QueryRequest) -> QueryResponse:
         similarity_threshold=request.similarity_threshold,
     )
 
-    return search_documents(request)
+    return await search_documents(request)

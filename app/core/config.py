@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = Field(default="http://localhost:11434")
     OLLAMA_MODEL: str = Field(default="llama3")
     OLLAMA_EMBEDDING_MODEL: str = Field(default="nomic-embed-text")
+    OLLAMA_TIMEOUT_SECONDS: float = Field(default=30.0)
     TEMPERATURE: float = Field(default=0.7)
     MAX_TOKENS: int = Field(default=2048)
 
