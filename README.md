@@ -1,480 +1,373 @@
-# ⚖️ AI Legal Buddy
+# AI Legal Buddy
 
-**AI-powered legal document analysis system** — upload contracts, agreements, and policies; ask natural language questions to surface obligations, risks, penalties, and key clauses using vector-similarity search and NLP.
+AI Legal Buddy is a FastAPI-based legal document assistant. It lets you upload PDF legal documents, indexes their text into a local ChromaDB vector store, and answers natural-language questions with relevant source chunks, legal insight tags, risk summaries, and an optional generated answer through Ollama.
 
----
-
-## Table of Contents
-
-1. [Features](#features)
-2. [Architecture Overview](#architecture-overview)
-3. [Project Structure](#project-structure)
-4. [Tech Stack](#tech-stack)
-5. [Quick Start](#quick-start)
-6. [Configuration](#configuration)
-7. [API Reference](#api-reference)
-8. [Frontend](#frontend)
-9. [Running Tests](#running-tests)
-10. [Docker Deployment](#docker-deployment)
-11. [Design Decisions](#design-decisions)
-12. [Future Improvements](#future-improvements)
-
----
+This project is built for local-first legal document exploration. It is not a replacement for professional legal advice.
 
 ## Features
 
-| Feature | Description |
-|---|---|
-| **PDF Ingestion** | Upload any PDF up to 50 MB; dual-parser strategy (pdfplumber → PyMuPDF fallback) |
-| **Smart Chunking** | Hierarchy-aware chunking: section headings → paragraphs → sentences → sliding window with overlap |
-| **Vector Embeddings** | `all-MiniLM-L6-v2` SentenceTransformer model; normalised cosine similarity |
-| **ChromaDB Storage** | Persistent HNSW vector index with full metadata; content-hash deduplication |
-| **Semantic Search** | Natural language queries converted to embeddings and matched against all stored chunks |
-| **Legal Insight Extraction** | Rule-based NLP identifies: obligations, penalties, termination clauses, risks, deadlines, confidentiality, indemnification, governing law, definitions |
-| **Risk Scoring** | Per-insight risk level (LOW / MEDIUM / HIGH / CRITICAL) with aggregate summary |
-| **REST API** | FastAPI with Pydantic v2 validation, OpenAPI docs, structured error responses |
-| **Web Frontend** | Zero-dependency HTML/CSS/JS interface for upload, query, and results |
-| **Structured Logging** | JSON or console output via structlog; per-request timing headers |
-| **Docker Support** | Multi-stage Dockerfile; docker-compose for one-command deployment |
+- PDF upload and ingestion through a FastAPI REST API.
+- Text extraction with `pdfplumber`, with PyMuPDF fallback for PDFs where the first parser extracts too little text.
+- Text cleaning that removes null characters, collapses spacing, and filters simple page-number lines.
+- Smart chunking by headings, paragraphs, and token windows with configurable overlap.
+- Embeddings with `sentence-transformers` using `all-MiniLM-L6-v2` by default.
+- Hash-based embedding fallback when the SentenceTransformer model cannot be loaded.
+- Persistent local vector search with ChromaDB and cosine similarity.
+- Query scoping across all documents or one selected document.
+- Rule-based legal insight extraction for obligations, penalties, termination, risks, definitions, deadlines, confidentiality, indemnification, and governing law.
+- Risk aggregation across retrieved chunks.
+- Optional answer generation through a local Ollama model.
+- Extractive fallback answer generation when Ollama is unavailable.
+- Single-file browser frontend for upload, document selection, search, result viewing, health checks, and deletion.
+- Pydantic request and response validation.
+- Structured logging through `structlog`.
+- Pytest coverage for schemas, chunking, insight extraction, embeddings, routes, and frontend serving.
 
----
+## Tech Stack
 
-## Architecture Overview
+| Area | Technology |
+| --- | --- |
+| Backend | FastAPI, Uvicorn |
+| Validation | Pydantic v2, pydantic-settings |
+| Embeddings | sentence-transformers, transformers |
+| Vector store | ChromaDB persistent client |
+| PDF parsing | pdfplumber, PyMuPDF |
+| Optional generation | Ollama HTTP API |
+| Frontend | Plain HTML, CSS, JavaScript |
+| Testing | pytest, pytest-asyncio |
+| Logging | structlog, rich |
 
+## Project Structure
+
+```text
+ai_legal_buddy/
+├── app/
+│   ├── main.py                     # FastAPI app, CORS, frontend serving
+│   ├── api/
+│   │   ├── router.py               # API v1 router
+│   │   └── routes/
+│   │       ├── documents.py        # Upload, list, delete documents
+│   │       ├── health.py           # Health and readiness checks
+│   │       └── query.py            # Natural-language search endpoint
+│   ├── core/
+│   │   ├── config.py               # Environment-backed settings
+│   │   ├── exceptions.py           # App exception classes and handlers
+│   │   └── logging.py              # structlog setup
+│   ├── models/
+│   │   └── schemas.py              # Pydantic request/response models
+│   ├── services/
+│   │   ├── embedding_service.py    # SentenceTransformer and hash embeddings
+│   │   ├── generation_service.py   # Ollama answer generation and fallback
+│   │   ├── ingestion_service.py    # PDF ingestion pipeline
+│   │   ├── search_service.py       # Query, retrieval, insights, answer orchestration
+│   │   └── vector_store.py         # ChromaDB operations
+│   └── utils/
+│       ├── file_utils.py           # File validation, saving, deletion
+│       ├── legal_extractor.py      # Rule-based legal insight extraction
+│       ├── pdf_extractor.py        # PDF text extraction
+│       └── text_chunker.py         # Page-aware text chunking
+├── frontend/
+│   └── index.html                  # Single-file web UI
+├── tests/
+│   └── test_core.py                # Unit and route tests
+├── data/
+│   └── uploads/                    # Uploaded files, created at runtime
+├── chroma_db/                      # Persistent ChromaDB data
+├── .env.example
+├── pytest.ini
+├── requirements.txt
+└── README.md
 ```
-┌──────────────────────────────────────────────────────────┐
-│                     HTTP Client / Browser                 │
-└────────────────────────┬─────────────────────────────────┘
-                         │ REST API
-┌────────────────────────▼─────────────────────────────────┐
-│                    FastAPI Application                     │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────┐  │
-│  │  /upload    │  │   /query     │  │   /health       │  │
-│  └──────┬──────┘  └──────┬───────┘  └─────────────────┘  │
-│         │                │                                 │
-│  ┌──────▼──────┐  ┌──────▼───────┐                        │
-│  │ Ingestion   │  │  Search      │                        │
-│  │ Service     │  │  Service     │                        │
-│  └──────┬──────┘  └──────┬───────┘                        │
-│         │                │                                 │
-│  ┌──────▼────────────────▼───────┐                        │
-│  │       Embedding Service        │                        │
-│  │   (SentenceTransformer)        │                        │
-│  └──────┬────────────────┬───────┘                        │
-│         │                │                                 │
-│  ┌──────▼──────┐  ┌──────▼───────┐                        │
-│  │ PDF Extract │  │  ChromaDB    │                        │
-│  │ + Chunker   │  │  (HNSW)      │                        │
-│  └─────────────┘  └──────────────┘                        │
-└──────────────────────────────────────────────────────────┘
-```
+
+## How It Works
 
 ### Ingestion Pipeline
 
-```
-PDF bytes
-   │
-   ▼
-[Size Guard + Hash Dedup]
-   │
-   ▼
-[PDF Text Extraction]  ← pdfplumber → PyMuPDF fallback
-   │
-   ▼
-[Text Cleaning]  ← strip nulls, collapse whitespace, remove page numbers
-   │
-   ▼
-[Smart Chunking]  ← section headings → paragraphs → sentences → sliding window
-   │
-   ▼
-[Batch Embedding]  ← SentenceTransformer all-MiniLM-L6-v2 (normalised)
-   │
-   ▼
-[ChromaDB Upsert]  ← chunk_id, embedding, text, metadata
+```text
+PDF upload
+  -> file validation and local save
+  -> PDF text extraction
+  -> page-aware text cleaning
+  -> legal text chunking
+  -> embedding generation
+  -> ChromaDB storage with document metadata
 ```
 
 ### Query Pipeline
 
-```
-Natural language query
-   │
-   ▼
-[Query Embedding]  ← same model as ingestion
-   │
-   ▼
-[ChromaDB ANN Search]  ← cosine similarity, optional document_id filter
-   │
-   ▼
-[Similarity Threshold Filter]
-   │
-   ▼
-[Legal Insight Extraction]  ← rule-based pattern matching per chunk
-   │
-   ▼
-[Aggregate Risk Summary]
-   │
-   ▼
-Structured JSON response
+```text
+User question
+  -> query embedding
+  -> ChromaDB similarity search
+  -> similarity threshold filtering
+  -> legal insight extraction per chunk
+  -> aggregate risk summary
+  -> optional generated answer from Ollama
+  -> structured JSON response
 ```
 
----
+## Setup
 
-## Project Structure
-
-```
-ai-legal-buddy/
-│
-├── app/
-│   ├── main.py                  # FastAPI app factory + lifespan
-│   │
-│   ├── api/
-│   │   ├── router.py            # Central API router (v1)
-│   │   └── routes/
-│   │       ├── documents.py     # POST /upload, GET /documents, DELETE
-│   │       ├── query.py         # POST /query
-│   │       └── health.py        # GET /health
-│   │
-│   ├── core/
-│   │   ├── config.py            # Pydantic Settings (env validation)
-│   │   ├── exceptions.py        # Domain exception hierarchy
-│   │   └── logging.py           # structlog pipeline configuration
-│   │
-│   ├── services/
-│   │   ├── embedding_service.py # SentenceTransformer singleton
-│   │   ├── vector_store.py      # ChromaDB abstraction layer
-│   │   ├── ingestion_service.py # Document ingestion orchestrator
-│   │   └── search_service.py    # Semantic query orchestrator
-│   │
-│   ├── models/
-│   │   └── schemas.py           # Pydantic v2 request/response schemas
-│   │
-│   └── utils/
-│       ├── pdf_extractor.py     # pdfplumber + PyMuPDF extraction
-│       ├── text_chunker.py      # Hierarchical smart chunker
-│       ├── legal_extractor.py   # Rule-based NLP insight extractor
-│       └── file_utils.py        # Hash, UUID, filename sanitisation
-│
-├── frontend/
-│   └── index.html               # Single-file web UI (no build step)
-│
-├── tests/
-│   ├── __init__.py
-│   └── test_core.py             # Unit + integration tests
-│
-├── data/
-│   └── uploads/                 # Uploaded PDFs (git-ignored)
-│
-├── chroma_db/                   # ChromaDB persistent storage (git-ignored)
-│
-├── .env                         # Environment variables
-├── requirements.txt
-├── pytest.ini
-├── Dockerfile
-├── docker-compose.yml
-├── postman_collection.json
-└── README.md
-```
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| **Framework** | FastAPI 0.111 + Uvicorn |
-| **Validation** | Pydantic v2 |
-| **AI / Embeddings** | SentenceTransformers (`all-MiniLM-L6-v2`) |
-| **Vector DB** | ChromaDB (persistent HNSW) |
-| **PDF Parsing** | pdfplumber (primary) + PyMuPDF (fallback) |
-| **Logging** | structlog (JSON / console) |
-| **Testing** | pytest + pytest-asyncio |
-| **Containerisation** | Docker + docker-compose |
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.10+ (3.11 recommended)
-- pip
-
-### 1. Clone and install
+### 1. Create a virtual environment
 
 ```bash
-git clone https://github.com/yourname/ai-legal-buddy.git
-cd ai-legal-buddy
-
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+```
 
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+macOS/Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+### 2. Install dependencies
+
+```bash
 pip install -r requirements.txt
 ```
 
-> **Note:** The first run downloads the `all-MiniLM-L6-v2` model (~90 MB) to `~/.cache/huggingface/`.
+The first successful SentenceTransformer run may download the embedding model.
 
-### 2. Configure environment
+### 3. Configure environment
+
+Copy the example file:
 
 ```bash
-cp .env .env.local   # optional: customise settings
+cp .env.example .env
 ```
 
-Key variables (all have sensible defaults):
+On Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Set at least:
 
 ```env
-EMBEDDING_MODEL=all-MiniLM-L6-v2
-CHUNK_SIZE=512
-CHUNK_OVERLAP=64
-TOP_K_RESULTS=5
-LOG_FORMAT=console   # human-readable during development
+SECRET_KEY="replace-with-a-local-secret"
 ```
 
-### 3. Run the server
+## Running the App
 
 ```bash
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
-Or via the module:
+Then open:
 
-```bash
-python app/main.py
+- Frontend: `http://localhost:8000`
+- Swagger docs: `http://localhost:8000/api/v1/docs`
+- ReDoc: `http://localhost:8000/api/v1/redoc`
+
+## Optional Ollama Setup
+
+The search endpoint calls Ollama to generate `generated_answer`. If Ollama is not running or the configured model is unavailable, the app falls back to an extractive answer from retrieved chunks.
+
+Default settings:
+
+```env
+OLLAMA_BASE_URL="http://localhost:11434"
+OLLAMA_MODEL="llama3"
+OLLAMA_TIMEOUT_SECONDS=30
+TEMPERATURE=0.7
+MAX_TOKENS=2048
 ```
 
-### 4. Open the UI
+Example local setup:
 
-Navigate to **http://localhost:8000** — the web interface loads automatically.
-
-### 5. Explore the API docs
-
-- **Swagger UI**: http://localhost:8000/api/v1/docs
-- **ReDoc**: http://localhost:8000/api/v1/redoc
-
----
+```bash
+ollama pull llama3
+ollama serve
+```
 
 ## Configuration
 
-All settings are in `.env` and validated by `app/core/config.py`:
+Important environment variables:
 
-| Variable | Default | Description |
-|---|---|---|
-| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | HuggingFace model name |
-| `EMBEDDING_BATCH_SIZE` | `32` | Chunks per encode batch |
-| `CHUNK_SIZE` | `512` | Target chars per chunk |
-| `CHUNK_OVERLAP` | `64` | Overlap chars between chunks |
-| `MIN_CHUNK_LENGTH` | `50` | Discard chunks shorter than this |
-| `TOP_K_RESULTS` | `5` | Default search results |
-| `SIMILARITY_THRESHOLD` | `0.3` | Minimum similarity score (0–1) |
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `APP_NAME` | `AI Legal Buddy` | Application display/API name |
+| `APP_VERSION` | `0.1.0` | Application version |
+| `DEBUG` | `False` | FastAPI debug flag |
+| `SECRET_KEY` | required | Required by settings validation |
+| `ALLOWED_ORIGINS` | `["http://localhost:3000"]` | CORS origins |
+| `UPLOAD_DIR` | `./data/uploads` | Saved uploaded PDFs |
 | `MAX_FILE_SIZE_MB` | `50` | Upload size limit |
-| `CHROMA_PERSIST_DIR` | `./chroma_db` | ChromaDB data directory |
+| `CHROMA_PERSIST_DIR` | `./chroma_db` | ChromaDB storage path |
+| `CHROMA_COLLECTION_NAME` | `legal_docs` | Chroma collection name |
+| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | SentenceTransformer model |
+| `EMBEDDING_BATCH_SIZE` | `32` | Batch size for chunk embedding |
+| `CHUNK_SIZE` | `1000` | Chunk target size in tokens/words |
+| `CHUNK_OVERLAP` | `200` | Overlap for large chunks |
+| `MIN_CHUNK_LENGTH` | `50` | Minimum chunk text length |
+| `TOP_K_RESULTS` | `5` | Default result count setting |
+| `SIMILARITY_THRESHOLD` | `0.7` | Default similarity threshold |
+| `LOG_LEVEL` | `INFO` | Logging level |
 | `LOG_FORMAT` | `json` | `json` or `console` |
-| `APP_ENV` | `development` | `development`, `staging`, `production` |
-
----
 
 ## API Reference
 
-### `GET /api/v1/health`
+### Health
 
-System health check.
+```http
+GET /api/v1/health/
+```
+
+Returns basic application health.
+
+```http
+GET /api/v1/health/ready
+```
+
+Checks API, settings, and vector store readiness.
+
+### Upload Document
+
+```http
+POST /api/v1/documents/upload
+```
+
+Multipart form field:
+
+- `file`: PDF file
+
+Example response:
 
 ```json
 {
-  "status": "healthy",
-  "version": "1.0.0",
-  "environment": "development",
-  "components": {
-    "api":             { "status": "ok" },
-    "vector_store":    { "status": "ok", "detail": "142 chunks in collection" },
-    "embedding_model": { "status": "ok", "detail": "model=all-MiniLM-L6-v2 dim=384" }
-  },
-  "uptime_seconds": 312.5
+  "document_id": "generated-document-id",
+  "filename": "contract.pdf",
+  "file_size_mb": 1.24,
+  "page_count": 12,
+  "upload_timestamp": "2026-06-24T10:00:00Z",
+  "chunk_count": 38,
+  "status": "processed",
+  "message": "Document processed successfully into 38 chunks across 12 pages."
 }
 ```
 
----
+### List Documents
 
-### `POST /api/v1/documents/upload`
-
-Ingest a PDF. Multipart form-data.
-
-**Form fields:**
-- `file` — PDF file (required)
-- `allow_duplicates` — boolean, default `false`
-
-**Response `201`:**
-```json
-{
-  "document_id": "a1b2c3d4-1234-...",
-  "filename": "service_agreement.pdf",
-  "total_pages": 12,
-  "total_chunks": 48,
-  "char_count": 24576,
-  "ingested_at": "2024-01-15T10:30:00Z",
-  "message": "Document successfully ingested"
-}
+```http
+GET /api/v1/documents/
 ```
 
-**Error codes:** `400` invalid PDF · `409` duplicate · `413` too large · `422` no text
+Returns uploaded/indexed document summaries.
 
----
+### Delete Document
 
-### `POST /api/v1/query/`
+```http
+DELETE /api/v1/documents/{document_id}
+```
 
-Semantic search with legal insight extraction.
+Deletes stored chunks from ChromaDB and removes the saved uploaded file when present.
 
-**Request body:**
+### Query Documents
+
+```http
+POST /api/v1/query/
+```
+
+Request:
+
 ```json
 {
   "query": "What are the termination conditions?",
-  "document_id": "a1b2c3d4-...",   // optional — scope to one document
+  "document_id": "optional-document-id",
   "top_k": 5,
-  "similarity_threshold": 0.25
+  "similarity_threshold": 0.7
 }
 ```
 
-**Response `200`:**
+Response:
+
 ```json
 {
   "query": "What are the termination conditions?",
-  "document_id": "a1b2c3d4-...",
-  "total_results": 3,
-  "query_time_ms": 42.5,
-  "aggregate_insights": {
-    "overall_risk": "high",
-    "insight_type_counts": { "termination": 3, "obligation": 2 },
-    "risk_level_counts": { "low": 0, "medium": 1, "high": 2, "critical": 0 },
-    "total_insights": 5
-  },
+  "generated_answer": "Based on the retrieved documents: ...",
+  "total_results": 2,
   "results": [
     {
-      "chunk_id": "a1b2c3d4-...__chunk_00012",
-      "document_id": "a1b2c3d4-...",
-      "filename": "service_agreement.pdf",
-      "page_number": 7,
-      "chunk_index": 12,
-      "text": "Either party may terminate this Agreement...",
-      "similarity_score": 0.8721,
-      "word_count": 64,
+      "chunk_id": "document-id_0",
+      "text": "Either party may terminate...",
+      "similarity_score": 0.86,
+      "page_number": 4,
       "insights": [
         {
           "insight_type": "termination",
           "risk_level": "high",
-          "description": "Discusses termination, cancellation, or expiry conditions",
-          "keywords_matched": ["terminate", "30 days", "written notice"]
+          "description": "Detected termination language in this section",
+          "matched_keywords": ["terminate", "without notice"],
+          "confidence_score": 0.8
         }
       ]
     }
-  ]
+  ],
+  "aggregate_insights": {
+    "counts_by_type": {
+      "termination": 1
+    },
+    "counts_by_risk": {
+      "low": 0,
+      "medium": 0,
+      "high": 1,
+      "critical": 0
+    },
+    "overall_risk": "high",
+    "total_insights": 1
+  },
+  "processing_time_ms": 123.4
 }
 ```
 
----
-
-### `GET /api/v1/documents/`
-
-List all ingested documents.
-
----
-
-### `DELETE /api/v1/documents/{document_id}`
-
-Remove a document and all its indexed chunks.
-
----
-
 ## Frontend
 
-The single-file frontend (`frontend/index.html`) is served at the root URL. No build step required.
+The frontend is served from `frontend/index.html` at `/`.
 
-**Features:**
-- Drag-and-drop or click-to-browse PDF upload with progress bar
-- Per-document scoping (click a document to search only within it)
-- Expandable result cards with similarity score bars
-- Colour-coded insight tags per legal category
-- Aggregate risk level summary pills
-- Live health indicator in the header
-- Document deletion with confirmation
+It supports:
 
----
+- Drag-and-drop PDF upload.
+- Document list refresh.
+- Selecting one document as the search scope.
+- Searching all documents when no document is selected.
+- Top-K result control.
+- Generated answer display.
+- Result cards with page number, similarity score, matched text, and legal insight tags.
+- Health/readiness indicator.
+- Document deletion.
 
 ## Running Tests
 
 ```bash
-# Install dev dependencies (included in requirements.txt)
-pip install pytest pytest-asyncio httpx
-
-# Run all tests
 pytest
-
-# Run with coverage
-pytest --cov=app --cov-report=html
 ```
 
-The test suite covers:
+The tests currently cover:
 
-- Text chunker: size enforcement, page provenance, edge cases
-- Legal extractor: obligation / penalty / termination / risk / deadline / confidentiality detection
-- API endpoints: health, upload validation, query validation, error responses
+- Query validation.
+- File extension and file size helpers.
+- Page-aware chunking.
+- Legal insight extraction and risk escalation.
+- Aggregate insight summaries.
+- Hash embedding fallback behavior.
+- Expected FastAPI routes.
+- Root frontend serving.
 
----
+## Development Notes
 
-## Docker Deployment
+- Only PDF uploads are accepted by the current API route, even though some utility validation supports `.docx`.
+- ChromaDB data is stored locally in `chroma_db/`.
+- Uploaded files are stored under `data/uploads/`.
+- If the embedding model cannot load, the app continues with deterministic hash embeddings. This keeps development resilient but may reduce search quality.
+- If Ollama is unavailable, search still works and generated answers fall back to retrieved text.
 
-### Single container
+## Legal Disclaimer
 
-```bash
-docker build -t ai-legal-buddy .
-docker run -p 8000:8000 \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/chroma_db:/app/chroma_db \
-  ai-legal-buddy
-```
-
-### docker-compose (recommended)
-
-```bash
-docker-compose up --build
-```
-
-Volumes ensure ChromaDB data and uploaded PDFs persist across container restarts.
-
----
-
-## Design Decisions
-
-**Why ChromaDB instead of Pinecone/Weaviate?**
-ChromaDB runs fully embedded (no separate server process), making local development and Docker deployment trivial. It persists to disk via SQLite + HNSW. For production scale, swapping in Weaviate or Qdrant requires only changing `VectorStoreService`.
-
-**Why rule-based insight extraction instead of an LLM?**
-Rule-based extraction is fast (< 1 ms per chunk), deterministic, offline, and requires no API keys. An LLM layer can be added on top for deeper semantic understanding without changing the architecture.
-
-**Why pdfplumber + PyMuPDF dual-parser?**
-pdfplumber handles complex layouts (tables, multi-column) better; PyMuPDF is faster and more robust for simple text-heavy PDFs. The fallback strategy handles nearly all real-world PDFs without user intervention.
-
-**Why Pydantic Settings?**
-Environment variable validation at startup catches misconfiguration before any request is served. The `@lru_cache` singleton ensures `.env` is parsed exactly once.
-
-**Why content-hash deduplication?**
-Re-ingesting the same PDF would create duplicate chunks and degrade search quality. SHA-256 of the raw bytes catches exact duplicates regardless of filename.
-
----
-
-## Future Improvements
-
-- **LLM Integration**: Add an optional Claude / GPT-4 layer for natural language summaries of retrieved chunks
-- **OCR Support**: Integrate Tesseract for scanned / image-based PDFs
-- **Multi-document Comparison**: Side-by-side diff of two contracts
-- **Clause Library**: Pre-indexed standard clause templates for similarity scoring
-- **Authentication**: JWT-based API keys for multi-tenant use
-- **Async Ingestion**: Background task queue (Celery / ARQ) for large PDF batches
-- **Metadata Filters**: Filter by date, document type, or custom tags
-- **Export**: Download extracted insights as structured JSON / CSV / DOCX
-- **Streaming**: Server-Sent Events for real-time ingestion progress
-- **Re-ranking**: Cross-encoder re-ranking pass on top-k results for higher precision
-
----
-
-## License
-
-MIT — see `LICENSE` for details.
+AI Legal Buddy is a software tool for document search and summarization assistance. It can miss context, misclassify clauses, or generate incomplete answers. Always review the original document and consult a qualified legal professional before making legal decisions.
